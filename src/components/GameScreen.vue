@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { watch, onMounted, ref } from 'vue'
+import { watch, onMounted, ref, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useGameState } from '@/composables/useGameState'
 import StatusBar from './StatusBar.vue'
@@ -16,38 +16,46 @@ const {
   state, allAdults, aliveCount,
   collectBerry, feedBird, calmBird, buryBird,
   releaseBirds, keepAndBreed, returnToStart, tryLoadGame,
-  popRecentlyUnlocked,
+  achievementNotifyCount, dequeueAchievement,
 } = useGameState()
 
 const currentToast = ref<Achievement | null>(null)
 const toastQueue: Achievement[] = []
+let isProcessing = false
 
-const processToastQueue = () => {
-  if (currentToast.value) return
-  const next = toastQueue.shift()
-  if (next) {
-    currentToast.value = next
-  }
+const showNextToast = async () => {
+  if (isProcessing) return
+  if (toastQueue.length === 0) return
+
+  isProcessing = true
+  const next = toastQueue.shift()!
+  currentToast.value = null
+
+  await nextTick()
+  currentToast.value = next
 }
 
 const handleToastClose = () => {
   currentToast.value = null
-  setTimeout(processToastQueue, 200)
+  isProcessing = false
+  setTimeout(() => {
+    showNextToast()
+  }, 300)
 }
 
-const checkNewAchievements = () => {
-  let achievement = popRecentlyUnlocked()
+const enqueuePendingAchievements = () => {
+  let achievement = dequeueAchievement()
   while (achievement) {
     toastQueue.push(achievement)
-    achievement = popRecentlyUnlocked()
+    achievement = dequeueAchievement()
   }
-  processToastQueue()
+  showNextToast()
 }
 
 watch(
-  () => state.achievementState.recentlyUnlocked.length,
+  () => achievementNotifyCount.value,
   () => {
-    checkNewAchievements()
+    enqueuePendingAchievements()
   }
 )
 
@@ -56,8 +64,10 @@ onMounted(() => {
     tryLoadGame()
     if (state.phase === 'start') {
       router.push('/')
+      return
     }
   }
+  enqueuePendingAchievements()
 })
 
 watch(

@@ -5,7 +5,7 @@ import { useGameState } from '@/composables/useGameState'
 import { ACHIEVEMENT_TIER_COLORS, ACHIEVEMENT_TIER_NAMES } from '@/utils/constants'
 
 const router = useRouter()
-const { state, restartGame, returnToStart, unlockedAchievements } = useGameState()
+const { state, restartGame, returnToStart, unlockedAchievements, sessionUnlockedAchievements } = useGameState()
 
 onMounted(() => {
   if (state.phase !== 'ended' && !state.score) {
@@ -20,12 +20,7 @@ const starArray = computed(() => {
   return Array.from({ length: 5 }, (_, i) => i < s)
 })
 
-const sessionAchievements = computed(() => {
-  return unlockedAchievements.value.filter(a => {
-    const progress = state.achievementState.unlocked[a.id]
-    return progress?.unlockedAt && Date.now() - progress.unlockedAt < 2 * 60 * 60 * 1000
-  })
-})
+const sessionAchievements = computed(() => sessionUnlockedAchievements.value)
 
 const handleRestart = () => {
   restartGame()

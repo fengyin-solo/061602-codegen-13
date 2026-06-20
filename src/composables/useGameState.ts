@@ -1,4 +1,4 @@
-import { reactive, computed, watch } from 'vue'
+import { reactive, computed, watch, ref } from 'vue'
 import type { GameState, Bird, Berry, GrowthStage, Personality, BerryType, Weather, GameScore, Achievement, SessionAchievementStats } from '@/types/game'
 import {
   ATTR_MIN, ATTR_MAX, DEATH_THRESHOLD,
@@ -24,6 +24,7 @@ const createInitialAchievementState = () => ({
   unlocked: loadAchievements(),
   sessionStats: createInitialSessionStats(),
   recentlyUnlocked: [] as string[],
+  sessionUnlocked: [] as string[],
 })
 
 const createInitialState = (): GameState => ({
@@ -44,6 +45,7 @@ const createInitialState = (): GameState => ({
 })
 
 const state = reactive<GameState>(createInitialState())
+const achievementNotifyCount = ref(0)
 
 let gameLoopTimer: ReturnType<typeof setInterval> | null = null
 let berrySpawnTimer: ReturnType<typeof setInterval> | null = null
@@ -118,6 +120,8 @@ const unlockAchievement = (achievementId: string) => {
   }
 
   state.achievementState.recentlyUnlocked.push(achievementId)
+  state.achievementState.sessionUnlocked.push(achievementId)
+  achievementNotifyCount.value++
   saveAchievements(unlocked)
   addEventLog(`🏆 成就解锁：${achievement.icon} ${achievement.name}！`, 'success')
 }
@@ -183,7 +187,13 @@ const checkEndGameAchievements = () => {
   }
 }
 
-const popRecentlyUnlocked = (): Achievement | null => {
+const getPendingAchievements = (): Achievement[] => {
+  return state.achievementState.recentlyUnlocked
+    .map(id => ACHIEVEMENTS.find(a => a.id === id))
+    .filter((a): a is Achievement => a !== undefined)
+}
+
+const dequeueAchievement = (): Achievement | null => {
   const id = state.achievementState.recentlyUnlocked.shift()
   if (!id) return null
   return ACHIEVEMENTS.find(a => a.id === id) || null
@@ -609,11 +619,10 @@ const getAchievementProgress = (achievementId: string) => {
   return state.achievementState.unlocked[achievementId] || { current: 0, unlocked: false }
 }
 
-const getSessionUnlockedAchievements = computed(() => {
-  return ACHIEVEMENTS.filter(a => {
-    const progress = state.achievementState.unlocked[a.id]
-    return progress?.unlocked && progress.unlockedAt && Date.now() - progress.unlockedAt < 24 * 60 * 60 * 1000
-  })
+const sessionUnlockedAchievements = computed(() => {
+  return state.achievementState.sessionUnlocked
+    .map(id => ACHIEVEMENTS.find(a => a.id === id))
+    .filter((a): a is Achievement => a !== undefined)
 })
 
 watch(
@@ -643,7 +652,9 @@ export function useGameState() {
     aliveCount,
     unlockedAchievements,
     getAchievementProgress,
-    getSessionUnlockedAchievements,
-    popRecentlyUnlocked,
+    sessionUnlockedAchievements,
+    achievementNotifyCount,
+    getPendingAchievements,
+    dequeueAchievement,
   }
 }

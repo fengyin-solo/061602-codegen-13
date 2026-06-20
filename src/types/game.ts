@@ -110,4 +110,5 @@ export interface AchievementState {
   unlocked: Record<string, AchievementProgress>
   sessionStats: SessionAchievementStats
   recentlyUnlocked: string[]
+  sessionUnlocked: string[]
 }
