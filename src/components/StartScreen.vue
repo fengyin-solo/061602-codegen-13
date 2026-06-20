@@ -1,12 +1,20 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
-import { onMounted } from 'vue'
+import { onMounted, ref, computed } from 'vue'
 import { useGameState } from '@/composables/useGameState'
+import AchievementBook from './AchievementBook.vue'
+import { ACHIEVEMENTS } from '@/utils/constants'
 
 const router = useRouter()
-const { startGame, tryLoadGame, state } = useGameState()
+const { startGame, tryLoadGame, state, unlockedAchievements } = useGameState()
 
 const hasSave = state.phase === 'playing' || state.phase === 'breeding'
+const showAchievements = ref(false)
+
+const achievementCount = computed(() => ({
+  unlocked: unlockedAchievements.value.length,
+  total: ACHIEVEMENTS.length,
+}))
 
 onMounted(() => {
   tryLoadGame()
@@ -106,6 +114,25 @@ const handleContinue = () => {
           </button>
         </div>
 
+        <div class="mt-4 flex justify-center">
+          <button
+            class="px-5 py-2.5 glass rounded-xl text-white/80 text-sm hover:bg-white/20 transition-all flex items-center gap-2"
+            @click="showAchievements = !showAchievements"
+          >
+            <span>📖</span>
+            {{ showAchievements ? '收起成就册' : '查看成就册' }}
+            <span class="bg-amber-500/30 text-amber-300 px-2 py-0.5 rounded-full text-xs font-bold">
+              {{ achievementCount.unlocked }}/{{ achievementCount.total }}
+            </span>
+          </button>
+        </div>
+
+        <Transition name="slide">
+          <div v-if="showAchievements" class="mt-6">
+            <AchievementBook />
+          </div>
+        </Transition>
+
         <div class="mt-6 text-center text-white/40 text-xs">
           💡 小贴士：经常喂食、安抚恐惧、关注天气，健康成长的鸟儿才会获得高分！
         </div>
@@ -113,3 +140,22 @@ const handleContinue = () => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.slide-enter-active,
+.slide-leave-active {
+  transition: all 0.35s ease;
+  overflow: hidden;
+}
+.slide-enter-from,
+.slide-leave-to {
+  opacity: 0;
+  max-height: 0;
+  transform: translateY(-10px);
+}
+.slide-enter-to,
+.slide-leave-from {
+  opacity: 1;
+  max-height: 1000px;
+}
+</style>

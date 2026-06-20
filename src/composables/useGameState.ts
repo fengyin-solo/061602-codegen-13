@@ -1,5 +1,5 @@
 import { reactive, computed, watch } from 'vue'
-import type { GameState, Bird, Berry, GrowthStage, Personality, BerryType, Weather, GameScore } from '@/types/game'
+import type { GameState, Bird, Berry, GrowthStage, Personality, BerryType, Weather, GameScore, Achievement, SessionAchievementStats } from '@/types/game'
 import {
   ATTR_MIN, ATTR_MAX, DEATH_THRESHOLD,
   STAGE_DURATION, FOOD_NEED_MULTIPLIER,
@@ -7,10 +7,24 @@ import {
   BERRY_SPAWN_INTERVAL, BERRY_MAX_COUNT, BERRY_LIFETIME,
   BERRY_VALUES, WEATHER_CHANGE_INTERVAL, WEATHER_EFFECTS,
   DAY_DURATION, INITIAL_FOOD, MIN_EGGS, MAX_EGGS,
-  MAX_BREEDING_ROUNDS, BIRD_NAMES,
+  MAX_BREEDING_ROUNDS, BIRD_NAMES, ACHIEVEMENTS,
 } from '@/utils/constants'
 import { randomInt, randomFloat, clamp, randomChoice, generateId, chance } from '@/utils/random'
-import { saveGame, loadGame, clearSave } from '@/utils/storage'
+import { saveGame, loadGame, clearSave, saveAchievements, loadAchievements } from '@/utils/storage'
+
+const createInitialSessionStats = (): SessionAchievementStats => ({
+  consecutiveFeedings: 0,
+  maxConsecutiveFeedings: 0,
+  totalFeedings: 0,
+  deathsThisSession: 0,
+  highestAvgHealth: 0,
+})
+
+const createInitialAchievementState = () => ({
+  unlocked: loadAchievements(),
+  sessionStats: createInitialSessionStats(),
+  recentlyUnlocked: [] as string[],
+})
 
 const createInitialState = (): GameState => ({
   phase: 'start',
@@ -26,6 +40,7 @@ const createInitialState = (): GameState => ({
   breedingCount: 0,
   maxBreedingRounds: MAX_BREEDING_ROUNDS,
   eventLog: [],
+  achievementState: createInitialAchievementState(),
 })
 
 const state = reactive<GameState>(createInitialState())
@@ -89,8 +104,95 @@ const addEventLog = (message: string, type: string = 'info') => {
   if (state.eventLog.length > 50) state.eventLog.pop()
 }
 
+const unlockAchievement = (achievementId: string) => {
+  const achievement = ACHIEVEMENTS.find(a => a.id === achievementId)
+  if (!achievement) return
+
+  const unlocked = state.achievementState.unlocked
+  if (unlocked[achievementId]?.unlocked) return
+
+  unlocked[achievementId] = {
+    current: achievement.target,
+    unlocked: true,
+    unlockedAt: Date.now(),
+  }
+
+  state.achievementState.recentlyUnlocked.push(achievementId)
+  saveAchievements(unlocked)
+  addEventLog(`🏆 成就解锁：${achievement.icon} ${achievement.name}！`, 'success')
+}
+
+const updateAchievementProgress = (achievementId: string, current: number) => {
+  const achievement = ACHIEVEMENTS.find(a => a.id === achievementId)
+  if (!achievement) return
+
+  const unlocked = state.achievementState.unlocked
+  if (unlocked[achievementId]?.unlocked) return
+
+  if (!unlocked[achievementId]) {
+    unlocked[achievementId] = { current: 0, unlocked: false }
+  }
+  unlocked[achievementId].current = Math.max(unlocked[achievementId].current, current)
+
+  if (current >= achievement.target) {
+    unlockAchievement(achievementId)
+  }
+}
+
+const checkFeedingAchievements = () => {
+  const stats = state.achievementState.sessionStats
+  updateAchievementProgress('feeding_bronze', stats.maxConsecutiveFeedings)
+  updateAchievementProgress('feeding_silver', stats.maxConsecutiveFeedings)
+  updateAchievementProgress('feeding_gold', stats.maxConsecutiveFeedings)
+  updateAchievementProgress('feeding_legend', stats.totalFeedings)
+}
+
+const checkSurvivalAchievements = () => {
+  const stats = state.achievementState.sessionStats
+  if (stats.deathsThisSession === 0) {
+    updateAchievementProgress('survival_bronze', state.totalHatched)
+    updateAchievementProgress('survival_silver', state.totalHatched)
+    updateAchievementProgress('survival_gold', state.totalHatched)
+  }
+}
+
+const checkHealthAchievements = () => {
+  const aliveBirds = state.birds.filter(b => !b.isDead)
+  if (aliveBirds.length === 0) return
+
+  const avgHealth = aliveBirds.reduce((s, b) => s + b.health, 0) / aliveBirds.length
+  state.achievementState.sessionStats.highestAvgHealth = Math.max(
+    state.achievementState.sessionStats.highestAvgHealth,
+    avgHealth
+  )
+
+  updateAchievementProgress('health_bronze', avgHealth)
+  updateAchievementProgress('health_silver', avgHealth)
+  updateAchievementProgress('health_gold', avgHealth)
+
+  const allMaxHealth = aliveBirds.every(b => b.health >= 100)
+  if (allMaxHealth) {
+    updateAchievementProgress('health_legend', 100)
+  }
+}
+
+const checkEndGameAchievements = () => {
+  const stats = state.achievementState.sessionStats
+  if (stats.deathsThisSession === 0 && state.totalHatched > 0) {
+    unlockAchievement('survival_legend')
+  }
+}
+
+const popRecentlyUnlocked = (): Achievement | null => {
+  const id = state.achievementState.recentlyUnlocked.shift()
+  if (!id) return null
+  return ACHIEVEMENTS.find(a => a.id === id) || null
+}
+
 const startGame = () => {
+  const savedUnlocked = loadAchievements()
   Object.assign(state, createInitialState())
+  state.achievementState.unlocked = savedUnlocked
   usedNames.clear()
   state.phase = 'playing'
   clearSave()
@@ -151,6 +253,7 @@ const updateGame = (deltaMs: number) => {
   })
 
   cleanupExpiredBerries()
+  checkHealthAchievements()
   checkGameEnd()
   saveGame(state)
 }
@@ -252,6 +355,7 @@ const hatchBird = (bird: Bird) => {
   state.totalHatched++
 
   addEventLog(`🥳 ${bird.name} 破壳啦！性格：${bird.personality}`, 'success')
+  checkSurvivalAchievements()
 }
 
 const growBird = (bird: Bird) => {
@@ -272,6 +376,8 @@ const growBird = (bird: Bird) => {
 const killBird = (bird: Bird) => {
   bird.isDead = true
   state.totalDied++
+  state.achievementState.sessionStats.deathsThisSession++
+  state.achievementState.sessionStats.consecutiveFeedings = 0
   addEventLog(`💔 ${bird.name} 离开了我们...`, 'danger')
 
   state.birds.filter(b => !b.isDead && b.stage !== 'egg').forEach(survivor => {
@@ -343,6 +449,13 @@ const feedBird = (birdId: string, amount: number): boolean => {
   bird.lastFedAt = Date.now()
   bird.justFed = true
 
+  const stats = state.achievementState.sessionStats
+  stats.consecutiveFeedings++
+  stats.totalFeedings++
+  stats.maxConsecutiveFeedings = Math.max(stats.maxConsecutiveFeedings, stats.consecutiveFeedings)
+
+  checkFeedingAchievements()
+
   if (bird.fear > 20) {
     const fearReduce = bird.personality === 'shy' ? 3 : bird.personality === 'gentle' ? 5 : 4
     bird.fear = clamp(bird.fear - fearReduce, ATTR_MIN, ATTR_MAX)
@@ -398,6 +511,7 @@ const keepAndBreed = () => {
   }
 
   addEventLog(`💝 成鸟们产下了 ${newEggCount} 颗新蛋！第 ${state.breedingCount} 窝`, 'success')
+  checkSurvivalAchievements()
   state.phase = 'playing'
 }
 
@@ -454,6 +568,7 @@ const calculateScore = (): GameScore => {
 
 const endGame = (_reason: string) => {
   stopGameLoop()
+  checkEndGameAchievements()
   state.phase = 'ended'
   state.score = calculateScore()
   addEventLog('🎮 游戏结束', 'info')
@@ -475,11 +590,31 @@ const tryLoadGame = (): boolean => {
   const saved = loadGame()
   if (saved && saved.phase === 'playing' || saved?.phase === 'breeding') {
     Object.assign(state, saved)
+    if (!state.achievementState) {
+      state.achievementState = createInitialAchievementState()
+    } else {
+      state.achievementState.unlocked = { ...loadAchievements(), ...state.achievementState.unlocked }
+    }
     startGameLoop()
     return true
   }
   return false
 }
+
+const unlockedAchievements = computed(() => {
+  return ACHIEVEMENTS.filter(a => state.achievementState.unlocked[a.id]?.unlocked)
+})
+
+const getAchievementProgress = (achievementId: string) => {
+  return state.achievementState.unlocked[achievementId] || { current: 0, unlocked: false }
+}
+
+const getSessionUnlockedAchievements = computed(() => {
+  return ACHIEVEMENTS.filter(a => {
+    const progress = state.achievementState.unlocked[a.id]
+    return progress?.unlocked && progress.unlockedAt && Date.now() - progress.unlockedAt < 24 * 60 * 60 * 1000
+  })
+})
 
 watch(
   () => state.phase,
@@ -506,5 +641,9 @@ export function useGameState() {
     tryLoadGame,
     allAdults,
     aliveCount,
+    unlockedAchievements,
+    getAchievementProgress,
+    getSessionUnlockedAchievements,
+    popRecentlyUnlocked,
   }
 }

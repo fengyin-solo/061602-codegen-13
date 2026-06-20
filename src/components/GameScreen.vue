@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { watch, onMounted } from 'vue'
+import { watch, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useGameState } from '@/composables/useGameState'
 import StatusBar from './StatusBar.vue'
@@ -7,14 +7,49 @@ import NestScene from './NestScene.vue'
 import WeatherOverlay from './WeatherOverlay.vue'
 import BirdCard from './BirdCard.vue'
 import EventModal from './EventModal.vue'
+import AchievementToast from './AchievementToast.vue'
 import { WEATHER_COLORS } from '@/utils/constants'
+import type { Achievement } from '@/types/game'
 
 const router = useRouter()
 const {
   state, allAdults, aliveCount,
   collectBerry, feedBird, calmBird, buryBird,
   releaseBirds, keepAndBreed, returnToStart, tryLoadGame,
+  popRecentlyUnlocked,
 } = useGameState()
+
+const currentToast = ref<Achievement | null>(null)
+const toastQueue: Achievement[] = []
+
+const processToastQueue = () => {
+  if (currentToast.value) return
+  const next = toastQueue.shift()
+  if (next) {
+    currentToast.value = next
+  }
+}
+
+const handleToastClose = () => {
+  currentToast.value = null
+  setTimeout(processToastQueue, 200)
+}
+
+const checkNewAchievements = () => {
+  let achievement = popRecentlyUnlocked()
+  while (achievement) {
+    toastQueue.push(achievement)
+    achievement = popRecentlyUnlocked()
+  }
+  processToastQueue()
+}
+
+watch(
+  () => state.achievementState.recentlyUnlocked.length,
+  () => {
+    checkNewAchievements()
+  }
+)
 
 onMounted(() => {
   if (state.phase === 'start') {
@@ -118,5 +153,10 @@ const handleCollect = (id: string) => {
         </div>
       </div>
     </div>
+
+    <AchievementToast
+      :achievement="currentToast"
+      @close="handleToastClose"
+    />
   </div>
 </template>

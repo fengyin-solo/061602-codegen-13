@@ -56,6 +56,7 @@ export interface GameState {
   eventLog: { id: string; message: string; type: string; timestamp: number }[]
   score?: GameScore
   selectedBirdId?: string
+  achievementState: AchievementState
 }
 
 export interface GameScore {
@@ -74,4 +75,39 @@ export interface WeatherEffect {
   healthMod: number
   awayChance?: number
   sickChance?: number
+}
+
+export type AchievementCategory = 'feeding' | 'survival' | 'health'
+
+export type AchievementTier = 'bronze' | 'silver' | 'gold' | 'legend'
+
+export interface Achievement {
+  id: string
+  category: AchievementCategory
+  tier: AchievementTier
+  name: string
+  description: string
+  icon: string
+  target: number
+  color: string
+}
+
+export interface AchievementProgress {
+  current: number
+  unlocked: boolean
+  unlockedAt?: number
+}
+
+export interface SessionAchievementStats {
+  consecutiveFeedings: number
+  maxConsecutiveFeedings: number
+  totalFeedings: number
+  deathsThisSession: number
+  highestAvgHealth: number
+}
+
+export interface AchievementState {
+  unlocked: Record<string, AchievementProgress>
+  sessionStats: SessionAchievementStats
+  recentlyUnlocked: string[]
 }

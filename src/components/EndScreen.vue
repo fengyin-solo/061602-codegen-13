@@ -2,9 +2,10 @@
 import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useGameState } from '@/composables/useGameState'
+import { ACHIEVEMENT_TIER_COLORS, ACHIEVEMENT_TIER_NAMES } from '@/utils/constants'
 
 const router = useRouter()
-const { state, restartGame, returnToStart } = useGameState()
+const { state, restartGame, returnToStart, unlockedAchievements } = useGameState()
 
 onMounted(() => {
   if (state.phase !== 'ended' && !state.score) {
@@ -17,6 +18,13 @@ const score = computed(() => state.score)
 const starArray = computed(() => {
   const s = score.value?.stars ?? 1
   return Array.from({ length: 5 }, (_, i) => i < s)
+})
+
+const sessionAchievements = computed(() => {
+  return unlockedAchievements.value.filter(a => {
+    const progress = state.achievementState.unlocked[a.id]
+    return progress?.unlockedAt && Date.now() - progress.unlockedAt < 2 * 60 * 60 * 1000
+  })
 })
 
 const handleRestart = () => {
@@ -105,6 +113,34 @@ const handleHome = () => {
               <span>💔 离世 {{ state.totalDied }} 只</span>
               <span>💝 繁殖 {{ state.breedingCount }} 窝</span>
               <span>🐦 存活 {{ state.birds.filter(b => !b.isDead).length }} 只</span>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="sessionAchievements.length > 0" class="mb-6">
+          <div class="text-amber-300 text-sm text-center mb-3 font-bold flex items-center justify-center gap-2">
+            <span class="text-lg">🏆</span>
+            <span>本局获得荣誉</span>
+            <span class="text-lg">🏆</span>
+          </div>
+          <div class="flex flex-wrap justify-center gap-3">
+            <div
+              v-for="achievement in sessionAchievements"
+              :key="achievement.id"
+              class="bg-white/10 rounded-2xl px-4 py-3 border border-amber-400/30 flex items-center gap-3 animate-pop-in"
+            >
+              <div
+                class="w-12 h-12 rounded-xl flex items-center justify-center text-2xl bg-gradient-to-br shadow-lg animate-float"
+                :class="ACHIEVEMENT_TIER_COLORS[achievement.tier]"
+              >
+                {{ achievement.icon }}
+              </div>
+              <div>
+                <div class="text-white font-bold">{{ achievement.name }}</div>
+                <div class="text-xs" :class="`bg-gradient-to-r ${ACHIEVEMENT_TIER_COLORS[achievement.tier]} bg-clip-text text-transparent font-bold`">
+                  {{ ACHIEVEMENT_TIER_NAMES[achievement.tier] }}成就
+                </div>
+              </div>
             </div>
           </div>
         </div>
